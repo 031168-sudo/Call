@@ -126,12 +126,36 @@ object ContactsReader {
         return out.toList()
     }
 
-    /** Копирует фото, выбранное вручную, в хранилище приложения. Возвращает file:// адрес. */
+    /** Фото из самого контакта (для кнопки «Фото из контакта»). */
+    fun contactPhoto(ctx: Context, contactId: String): String? =
+        ctx.contentResolver.query(
+            ContactsContract.Contacts.CONTENT_URI,
+            arrayOf(ContactsContract.Contacts.PHOTO_URI),
+            "${ContactsContract.Contacts._ID} = ?",
+            arrayOf(contactId),
+            null
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+
+    /** Признаки мессенджеров заново — при редактировании карточки. */
+    fun messengers(ctx: Context, contactId: String): Pair<Boolean, Boolean> {
+        val rows = rows(ctx, contactId)
+        return rows.any { it.mimetype == MIME_TELEGRAM } to rows.any { it.mimetype == MIME_WHATSAPP }
+    }
+
+    /**
+     * Копирует фото, выбранное вручную, в хранилище приложения. Возвращает file:// адрес.
+     * Имя файла каждый раз новое, иначе загрузчик картинок покажет старое фото из кэша.
+     */
     fun copyPhoto(ctx: Context, source: Uri, contactId: String): String? {
-        val target = File(ctx.filesDir, "photo_$contactId.jpg")
+        ctx.filesDir.listFiles { f -> f.name.startsWith("photo_${contactId}_") }?.forEach { it.delete() }
+        val target = File(ctx.filesDir, "photo_${contactId}_${System.currentTimeMillis()}.jpg")
         ctx.contentResolver.openInputStream(source)?.use { input ->
             target.outputStream().use { input.copyTo(it) }
         } ?: return null
         return Uri.fromFile(target).toString()
+    }
+
+    fun deletePhotos(ctx: Context, contactId: String) {
+        ctx.filesDir.listFiles { f -> f.name.startsWith("photo_${contactId}_") }?.forEach { it.delete() }
     }
 }
