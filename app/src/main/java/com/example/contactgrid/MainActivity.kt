@@ -1,17 +1,18 @@
 package com.example.contactgrid
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,17 +28,20 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,8 +64,11 @@ import coil.compose.AsyncImage
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Приложение рисуется под статус-баром и навигационной панелью, цвет панелей берётся из системной темы
+        enableEdgeToEdge()
         setContent {
-            MaterialTheme(colorScheme = lightColorScheme()) {
+            val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
+            MaterialTheme(colorScheme = colors) {
                 App()
             }
         }
@@ -76,16 +83,19 @@ fun App() {
     var selected by remember { mutableStateOf<Person?>(null) }
     var photoFor by remember { mutableStateOf<Person?>(null) }
     var debugFor by remember { mutableStateOf<Person?>(null) }
+    var pendingCandidate by remember { mutableStateOf<Candidate?>(null) }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(Unit) { permission.launch(Manifest.permission.READ_CONTACTS) }
 
     val pickContact = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
         if (uri != null) {
-            ContactsReader.fromPicked(ctx, uri)?.let { p ->
-                if (people.none { it.id == p.id }) {
-                    people = people + p
-                    ContactStore.save(ctx, people)
+            val c = ContactsReader.fromPicked(ctx, uri)
+            when {
+                c == null -> Unit
+                c.phones.size > 1 -> pendingCandidate = c   // несколько номеров: спросим, какой выбрать
+                else -> {
+                    addPerson(ctx, people, c, c.phones.firstOrNull())?.let { people = it }
                 }
             }
         }
@@ -100,6 +110,11 @@ fun App() {
             }
         }
         photoFor = null
+    }
+
+    fun changePhoto(p: Person) {
+        photoFor = p
+        pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
 
     Scaffold(
@@ -119,10 +134,37 @@ fun App() {
                 PersonCard(
                     person = p,
                     onClick = { selected = p },
+                    onEditPhoto = { changePhoto(p) },
                     onLongClick = { debugFor = p }
                 )
             }
         }
+    }
+
+    // Выбор номера, если у контакта их несколько
+    pendingCandidate?.let { c ->
+        AlertDialog(
+            onDismissRequest = { pendingCandidate = null },
+            confirmButton = { TextButton(onClick = { pendingCandidate = null }) { Text("Отмена") } },
+            title = { Text("Какой номер у ${c.name}?") },
+            text = {
+                Column {
+                    c.phones.forEach { number ->
+                        Text(
+                            number,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    addPerson(ctx, people, c, number)?.let { people = it }
+                                    pendingCandidate = null
+                                }
+                                .padding(vertical = 12.dp)
+                        )
+                    }
+                }
+            }
+        )
     }
 
     selected?.let { p ->
@@ -147,14 +189,13 @@ fun App() {
             }
             ActionRow("Max") { openMax(ctx, phone) }
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            ActionRow("Добавить фото") {
-                photoFor = p
+            ActionRow("Сменить фото") {
                 selected = null
-                pickPhoto.launch(
-                    androidx.activity.result.PickVisualMediaRequest(
-                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                    )
-                )
+                changePhoto(p)
+            }
+            ActionRow("Записи контакта (тест)") {
+                selected = null
+                debugFor = p
             }
             Spacer(Modifier.height(24.dp))
         }
@@ -180,9 +221,35 @@ fun App() {
     }
 }
 
+/** Добавляет контакт с выбранным номером. Возвращает новый список или null, если контакт уже есть. */
+private fun addPerson(
+    ctx: android.content.Context,
+    current: List<Person>,
+    c: Candidate,
+    phone: String?
+): List<Person>? {
+    if (current.any { it.id == c.id }) return null
+    val person = Person(
+        id = c.id,
+        name = c.name,
+        phone = phone,
+        photo = c.photo,
+        hasTelegram = c.hasTelegram,
+        hasWhatsApp = c.hasWhatsApp
+    )
+    val updated = current + person
+    ContactStore.save(ctx, updated)
+    return updated
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun PersonCard(person: Person, onClick: () -> Unit, onLongClick: () -> Unit) {
+fun PersonCard(
+    person: Person,
+    onClick: () -> Unit,
+    onEditPhoto: () -> Unit,
+    onLongClick: () -> Unit
+) {
     Card(
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier
@@ -233,6 +300,16 @@ fun PersonCard(person: Person, onClick: () -> Unit, onLongClick: () -> Unit) {
                     fontSize = 14.sp
                 )
             }
+            // Кнопка смены фото прямо на карточке
+            IconButton(
+                onClick = onEditPhoto,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(50))
+            ) {
+                Icon(Icons.Default.Edit, contentDescription = "Сменить фото", tint = Color.White)
+            }
         }
     }
 }
@@ -244,11 +321,7 @@ fun ActionRow(label: String, onClick: () -> Unit) {
         style = MaterialTheme.typography.titleMedium,
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickableSimple(onClick)
+            .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 16.dp)
     )
 }
-
-@OptIn(ExperimentalFoundationApi::class)
-private fun Modifier.combinedClickableSimple(onClick: () -> Unit): Modifier =
-    this.combinedClickable(onClick = onClick)

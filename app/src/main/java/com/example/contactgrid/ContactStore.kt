@@ -20,6 +20,16 @@ data class Person(
     val hasWhatsApp: Boolean
 )
 
+/** Контакт из системного выбора, ещё не сохранённый: нужен выбор номера, если их несколько. */
+data class Candidate(
+    val id: String,
+    val name: String,
+    val photo: String?,
+    val phones: List<String>,
+    val hasTelegram: Boolean,
+    val hasWhatsApp: Boolean
+)
+
 data class DataRow(val mimetype: String, val data1: String?)
 
 object ContactStore {
@@ -62,8 +72,8 @@ object ContactStore {
 
 object ContactsReader {
 
-    /** Контакт, выбранный через системный выбор контактов. Возвращает null, если не удалось прочитать. */
-    fun fromPicked(ctx: Context, uri: Uri): Person? {
+    /** Читает контакт, выбранный через системный выбор. Возвращает null, если не удалось прочитать. */
+    fun fromPicked(ctx: Context, uri: Uri): Candidate? {
         val cursor = ctx.contentResolver.query(
             uri,
             arrayOf(ContactsContract.Contacts._ID, ContactsContract.Contacts.DISPLAY_NAME, ContactsContract.Contacts.PHOTO_URI),
@@ -74,23 +84,19 @@ object ContactsReader {
             val id = it.getString(0)
             val name = it.getString(1) ?: "Без имени"
             val photo = it.getString(2)
-            return build(ctx, id, name, photo)
+            val rows = rows(ctx, id)
+            return Candidate(
+                id = id,
+                name = name,
+                photo = photo,
+                phones = phones(ctx, id),
+                hasTelegram = rows.any { r -> r.mimetype == MIME_TELEGRAM },
+                hasWhatsApp = rows.any { r -> r.mimetype == MIME_WHATSAPP }
+            )
         }
     }
 
-    fun build(ctx: Context, contactId: String, name: String, photo: String?): Person {
-        val rows = rows(ctx, contactId)
-        return Person(
-            id = contactId,
-            name = name,
-            phone = phone(ctx, contactId),
-            photo = photo,
-            hasTelegram = rows.any { it.mimetype == MIME_TELEGRAM },
-            hasWhatsApp = rows.any { it.mimetype == MIME_WHATSAPP }
-        )
-    }
-
-    /** Все записи контакта: нужны и для флагов, и для экрана отладки. */
+    /** Все записи контакта: нужны для флагов мессенджеров и для экрана отладки. */
     fun rows(ctx: Context, contactId: String): List<DataRow> {
         val out = mutableListOf<DataRow>()
         ctx.contentResolver.query(
@@ -105,14 +111,20 @@ object ContactsReader {
         return out
     }
 
-    fun phone(ctx: Context, contactId: String): String? =
+    /** Все номера контакта без повторов. */
+    fun phones(ctx: Context, contactId: String): List<String> {
+        val out = linkedSetOf<String>()
         ctx.contentResolver.query(
             ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
             arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
             "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?",
             arrayOf(contactId),
             null
-        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+        )?.use { c ->
+            while (c.moveToNext()) c.getString(0)?.let { out += it }
+        }
+        return out.toList()
+    }
 
     /** Копирует фото, выбранное вручную, в хранилище приложения. Возвращает file:// адрес. */
     fun copyPhoto(ctx: Context, source: Uri, contactId: String): String? {
