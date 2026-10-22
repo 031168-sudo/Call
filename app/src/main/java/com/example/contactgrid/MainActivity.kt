@@ -224,7 +224,7 @@ fun App() {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Контакты") },
+                title = { Text("Звонилка") },
                 actions = {
                     IconButton(onClick = { pickContact.launch(null) }) {
                         Icon(Icons.Default.Add, contentDescription = "Добавить контакт")

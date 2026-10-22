@@ -30,7 +30,7 @@ jobs:
       - name: Rename APK
         run: |
           mkdir -p out
-          cp app/build/outputs/apk/debug/app-debug.apk out/ContactGrid-${GITHUB_RUN_NUMBER}.apk
+          cp app/build/outputs/apk/debug/app-debug.apk out/Zvonilka-${GITHUB_RUN_NUMBER}.apk
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -43,4 +43,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG=v0.1.${GITHUB_RUN_NUMBER}
-          gh release create "$TAG" out/*.apk --title "ContactGrid $TAG" --notes "Сборка из main, коммит ${GITHUB_SHA::7}"
+          gh release create "$TAG" out/*.apk --title "Звонилка $TAG" --notes "Сборка из main, коммит ${GITHUB_SHA::7}"

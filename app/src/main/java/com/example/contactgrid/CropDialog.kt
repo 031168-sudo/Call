@@ -5,15 +5,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,19 +46,32 @@ fun CropDialog(bitmap: Bitmap, aspect: Float, onCancel: () -> Unit, onDone: (Cro
         onDismissRequest = onCancel,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
     ) {
-        Box(Modifier.fillMaxSize().background(Color.Black)) {
+        // Расчёт обрезки задаётся внутри области с фото, а вызывается кнопкой «Готово»
+        val computeCrop = remember { arrayOfNulls<() -> CropRect>(1) }
+
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .safeDrawingPadding()   // не залезать под статус-бар и навигационную панель
+        ) {
+            Text(
+                "Двигайте фото пальцем, увеличивайте двумя пальцами",
+                color = Color.White.copy(alpha = 0.85f),
+                fontSize = 14.sp,
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+            )
+
             BoxWithConstraints(
                 Modifier
-                    .fillMaxSize()
-                    .statusBarsPadding()
-                    .navigationBarsPadding()
-                    .padding(top = 48.dp, bottom = 88.dp)
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
                 val w = constraints.maxWidth.toFloat()
                 val h = constraints.maxHeight.toFloat()
                 var fw = w * 0.86f
                 var fh = fw / aspect
-                if (fh > h * 0.92f) { fh = h * 0.92f; fw = fh * aspect }
+                if (fh > h * 0.94f) { fh = h * 0.94f; fw = fh * aspect }
                 val frameLeft = (w - fw) / 2
                 val frameTop = (h - fh) / 2
                 val bw = bitmap.width.toFloat()
@@ -81,6 +92,15 @@ fun CropDialog(bitmap: Bitmap, aspect: Float, onCancel: () -> Unit, onDone: (Cro
                     frameLeft + fw / 2 + offset.x - bw * scale / 2,
                     frameTop + fh / 2 + offset.y - bh * scale / 2
                 )
+
+                computeCrop[0] = {
+                    val tl = imageTopLeft()
+                    val l = ((frameLeft - tl.x) / scale).roundToInt().coerceIn(0, bitmap.width - 1)
+                    val t = ((frameTop - tl.y) / scale).roundToInt().coerceIn(0, bitmap.height - 1)
+                    val cw = (fw / scale).roundToInt().coerceIn(1, bitmap.width - l)
+                    val ch = (fh / scale).roundToInt().coerceIn(1, bitmap.height - t)
+                    CropRect(l, t, cw, ch)
+                }
 
                 Canvas(
                     Modifier
@@ -116,37 +136,20 @@ fun CropDialog(bitmap: Bitmap, aspect: Float, onCancel: () -> Unit, onDone: (Cro
                         style = Stroke(2.dp.toPx())
                     )
                 }
+            }
 
-                // Кнопки здесь, чтобы видеть текущие scale/offset
-                Row(
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp)
-                        .offset(y = 72.dp)
-                ) {
-                    TextButton(onClick = onCancel) { Text("Отмена", color = Color.White) }
-                    Button(onClick = {
-                        val tl = imageTopLeft()
-                        val l = ((frameLeft - tl.x) / scale).roundToInt().coerceIn(0, bitmap.width - 1)
-                        val t = ((frameTop - tl.y) / scale).roundToInt().coerceIn(0, bitmap.height - 1)
-                        val cw = (fw / scale).roundToInt().coerceIn(1, bitmap.width - l)
-                        val ch = (fh / scale).roundToInt().coerceIn(1, bitmap.height - t)
-                        onDone(CropRect(l, t, cw, ch))
-                    }) { Text("Готово") }
+            Row(
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp)
+            ) {
+                TextButton(onClick = onCancel) { Text("Отмена", color = Color.White, fontSize = 16.sp) }
+                Button(onClick = { computeCrop[0]?.let { onDone(it()) } }) {
+                    Text("Готово", fontSize = 16.sp)
                 }
             }
-            Text(
-                "Двигайте фото пальцем, увеличивайте двумя пальцами",
-                color = Color.White.copy(alpha = 0.85f),
-                fontSize = 14.sp,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .statusBarsPadding()
-                    .padding(top = 14.dp, start = 16.dp, end = 16.dp)
-            )
         }
     }
 }
