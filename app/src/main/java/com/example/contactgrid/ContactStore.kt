@@ -17,7 +17,9 @@ data class Person(
     val phone: String?,
     val photo: String?,
     val hasTelegram: Boolean,
-    val hasWhatsApp: Boolean
+    val hasWhatsApp: Boolean,
+    /** Место на «рабочем столе»: страница * 12 + позиция на странице. Пустые места допускаются. */
+    val slot: Int = 0
 )
 
 /** Контакт из системного выбора, ещё не сохранённый: нужен выбор номера, если их несколько. */
@@ -47,7 +49,8 @@ object ContactStore {
                 phone = o.optString("phone").ifEmpty { null },
                 photo = o.optString("photo").ifEmpty { null },
                 hasTelegram = o.optBoolean("telegram"),
-                hasWhatsApp = o.optBoolean("whatsapp")
+                hasWhatsApp = o.optBoolean("whatsapp"),
+                slot = o.optInt("slot", i)   // старые сохранения без слота — по порядку
             )
         }
     }
@@ -63,6 +66,7 @@ object ContactStore {
                     .put("photo", p.photo ?: "")
                     .put("telegram", p.hasTelegram)
                     .put("whatsapp", p.hasWhatsApp)
+                    .put("slot", p.slot)
             )
         }
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

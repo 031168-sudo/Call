@@ -2,13 +2,16 @@ package com.example.contactgrid
 
 import android.Manifest
 import android.content.Context
+import android.graphics.Bitmap
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -19,18 +22,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridItemInfo
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -41,12 +42,13 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -54,13 +56,16 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,15 +80,24 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import coil.compose.AsyncImage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -103,33 +117,60 @@ private val WhatsAppGreen = Color(0xFF25D366)
 private val TelegramBlue = Color(0xFF229ED9)
 private val MaxViolet = Color(0xFF6A4DFF)
 
-private fun LazyGridItemInfo.contains(p: Offset): Boolean =
-    p.x >= offset.x && p.x <= offset.x + size.width &&
-        p.y >= offset.y && p.y <= offset.y + size.height
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App() {
     val ctx = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val gridState = rememberLazyGridState()
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
 
-    var people by remember { mutableStateOf(ContactStore.load(ctx)) }
+    var people by remember { mutableStateOf(normalize(ContactStore.load(ctx))) }
     var selected by remember { mutableStateOf<Person?>(null) }      // меню звонка (короткое нажатие)
-    var menuFor by remember { mutableStateOf<String?>(null) }       // меню «Изменить / Удалить» (долгое нажатие)
+    var menuFor by remember { mutableStateOf<String?>(null) }       // «Изменить / Удалить» (долгое нажатие)
     var editFor by remember { mutableStateOf<String?>(null) }
     var deleteFor by remember { mutableStateOf<Person?>(null) }
     var debugFor by remember { mutableStateOf<Person?>(null) }
     var photoFor by remember { mutableStateOf<String?>(null) }
     var pendingCandidate by remember { mutableStateOf<Candidate?>(null) }
 
-    // Перетаскивание
+    // Подгонка фото
+    var cropReq by remember { mutableStateOf<CropRequest?>(null) }
+    var cropBitmap by remember { mutableStateOf<Bitmap?>(null) }
+
+    // Геометрия и перетаскивание
+    var areaSize by remember { mutableStateOf(IntSize.Zero) }
     var draggingKey by remember { mutableStateOf<String?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var dragMoved by remember { mutableStateOf(false) }
+    var finger by remember { mutableStateOf(Offset.Zero) }
+    var grab by remember { mutableStateOf(Offset.Zero) }
+    var edgeDir by remember { mutableStateOf(0) }
+
+    val padPx = with(density) { 8.dp.toPx() }
+    val gapPx = with(density) { 8.dp.toPx() }
+    fun grid(): Grid? = Grid.of(areaSize.width, areaSize.height, padPx, gapPx)
+    val cardAspect = grid()?.aspect ?: 0.75f
+
+    // Во время перетаскивания в конце есть пустая страница — туда можно унести карточку
+    val pagerState = rememberPagerState { pageCount(people) + if (draggingKey != null) 1 else 0 }
+
+    fun hoverSlot(): Int? {
+        val g = grid() ?: return null
+        if (draggingKey == null || !dragMoved) return null
+        val center = finger - grab + Offset(g.cellW / 2, g.cellH / 2)
+        return pagerState.currentPage * PER_PAGE + g.cellAtClamped(center)
+    }
 
     fun update(list: List<Person>) {
         people = list
         ContactStore.save(ctx, list)
+    }
+
+    fun addCandidate(c: Candidate, phone: String?) {
+        val slot = firstFreeSlot(people)
+        update(people + c.toPerson(phone, slot))
+        scope.launch { pagerState.animateScrollToPage(slot / PER_PAGE) }
+        if (c.photo != null) cropReq = CropRequest(c.id, CropSource.FromContact(c.id))
     }
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -140,131 +181,221 @@ fun App() {
             val c = ContactsReader.fromPicked(ctx, uri)
             when {
                 c == null -> Unit
-                people.any { it.id == c.id } -> Unit
+                people.any { it.id == c.id } -> Toast.makeText(ctx, "${c.name} уже есть", Toast.LENGTH_SHORT).show()
                 c.phones.size > 1 -> pendingCandidate = c   // несколько номеров — спросим
-                else -> update(people + c.toPerson(c.phones.firstOrNull()))
+                else -> addCandidate(c, c.phones.firstOrNull())
             }
         }
     }
 
     val pickPhoto = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         val id = photoFor
-        if (uri != null && id != null) {
-            ContactsReader.copyPhoto(ctx, uri, id)?.let { file ->
-                update(people.map { if (it.id == id) it.copy(photo = file) else it })
-            }
-        }
+        if (uri != null && id != null) cropReq = CropRequest(id, CropSource.FromUri(uri))
         photoFor = null
     }
 
+    // Загрузка фото для подгонки — в фоне
+    LaunchedEffect(cropReq) {
+        cropBitmap = null
+        val req = cropReq ?: return@LaunchedEffect
+        val bmp = withContext(Dispatchers.IO) { Photos.load(ctx, req.source) }
+        if (bmp == null) {
+            Toast.makeText(ctx, "Не удалось открыть фото", Toast.LENGTH_SHORT).show()
+            cropReq = null
+        } else {
+            cropBitmap = bmp
+        }
+    }
+
+    // Карточку держат у края экрана — листаем страницы
+    LaunchedEffect(edgeDir) {
+        if (edgeDir == 0) return@LaunchedEffect
+        while (true) {
+            delay(650)
+            val target = pagerState.currentPage + edgeDir
+            if (target !in 0 until pagerState.pageCount) break
+            pagerState.animateScrollToPage(target)
+        }
+    }
+
+    val layout = arrange(people, draggingKey, hoverSlot())
+    val pages = pagerState.pageCount
+
     Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(onClick = { pickContact.launch(null) }) {
-                Icon(Icons.Default.Add, contentDescription = "Добавить контакт")
+        topBar = {
+            TopAppBar(
+                title = { Text("Контакты") },
+                actions = {
+                    IconButton(onClick = { pickContact.launch(null) }) {
+                        Icon(Icons.Default.Add, contentDescription = "Добавить контакт")
+                    }
+                }
+            )
+        },
+        bottomBar = {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .height(24.dp)
+            ) {
+                if (pages > 1) {
+                    repeat(pages) { i ->
+                        val active = i == pagerState.currentPage
+                        Box(
+                            Modifier
+                                .padding(horizontal = 4.dp)
+                                .size(if (active) 9.dp else 7.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (active) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.outlineVariant
+                                )
+                                .align(Alignment.CenterVertically)
+                        )
+                    }
+                }
             }
         }
     ) { padding ->
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            state = gridState,
-            userScrollEnabled = draggingKey == null,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
+        Box(
+            Modifier
                 .padding(padding)
-                .padding(8.dp)
-                // Один обработчик на всю сетку: нажатие, долгое нажатие и перетаскивание
+                .fillMaxSize()
+                .onSizeChanged { areaSize = it }
+                // Один обработчик: нажатие, долгое нажатие, перетаскивание. Свайп страниц — у пейджера.
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        val start = gridState.layoutInfo.visibleItemsInfo
-                            .firstOrNull { it.contains(down.position) } ?: return@awaitEachGesture
-                        val key = start.key as String
+                        val g = grid() ?: return@awaitEachGesture
+                        if (pagerState.isScrollInProgress) return@awaitEachGesture
+                        val pos = g.cellAt(down.position) ?: return@awaitEachGesture
+                        val slot = pagerState.currentPage * PER_PAGE + pos
+                        val person = people.firstOrNull { it.slot == slot } ?: return@awaitEachGesture
 
-                        // Ждём: отпустили быстро (нажатие), повели (прокрутка) или держат (долгое нажатие)
-                        val quickResult = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                            var r = false
+                        // Отпустили быстро — нажатие; повели — свайп страницы; держат — долгое нажатие
+                        val quick = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            var tapped = false
                             while (true) {
                                 val ev = awaitPointerEvent()
                                 val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                if (ch.changedToUpIgnoreConsumed()) { r = true; break }
+                                if (ch.changedToUpIgnoreConsumed()) { tapped = true; break }
                                 if ((ch.position - down.position).getDistance() > viewConfiguration.touchSlop) break
                             }
-                            r
+                            tapped
                         }
-                        when (quickResult) {
-                            true -> { selected = people.firstOrNull { it.id == key }; return@awaitEachGesture }
-                            false -> return@awaitEachGesture        // это прокрутка
-                            null -> Unit                            // долгое нажатие
+                        when (quick) {
+                            true -> { selected = person; return@awaitEachGesture }
+                            false -> return@awaitEachGesture
+                            null -> Unit
                         }
 
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        draggingKey = key
-                        dragOffset = Offset.Zero
-                        var moved = false
+                        grab = down.position - g.origin(pos)
+                        finger = down.position
+                        dragMoved = false
+                        draggingKey = person.id
+                        val edge = 36.dp.toPx()
 
                         while (true) {
                             val ev = awaitPointerEvent(PointerEventPass.Initial)
                             val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
                             if (ch.changedToUpIgnoreConsumed()) break
-                            dragOffset += ch.positionChange()
+                            finger += ch.positionChange()
                             ch.consume()
-                            if (!moved && dragOffset.getDistance() > viewConfiguration.touchSlop) moved = true
-                            if (!moved) continue
-
-                            // Если центр карточки над другой — переставляем
-                            val info = gridState.layoutInfo.visibleItemsInfo
-                            val cur = info.firstOrNull { it.key == key } ?: continue
-                            if (cur.index != people.indexOfFirst { it.id == key }) continue
-                            val center = Offset(
-                                cur.offset.x + cur.size.width / 2f,
-                                cur.offset.y + cur.size.height / 2f
-                            ) + dragOffset
-                            val target = info.firstOrNull { it.key != key && it.contains(center) } ?: continue
-                            people = people.toMutableList().apply { add(target.index, removeAt(cur.index)) }
-                            dragOffset += Offset(
-                                (cur.offset.x - target.offset.x).toFloat(),
-                                (cur.offset.y - target.offset.y).toFloat()
-                            )
+                            if (!dragMoved && (finger - down.position).getDistance() > viewConfiguration.touchSlop) {
+                                dragMoved = true
+                            }
+                            edgeDir = when {
+                                !dragMoved -> 0
+                                finger.x < edge -> -1
+                                finger.x > size.width - edge -> 1
+                                else -> 0
+                            }
                         }
 
+                        edgeDir = 0
+                        if (dragMoved) {
+                            val placed = arrange(people, person.id, hoverSlot())
+                            update(normalize(people.map { it.copy(slot = placed[it.id] ?: it.slot) }))
+                        } else {
+                            menuFor = person.id
+                        }
                         draggingKey = null
-                        dragOffset = Offset.Zero
-                        if (moved) ContactStore.save(ctx, people) else menuFor = key
+                        dragMoved = false
                     }
                 }
         ) {
-            items(people, key = { it.id }) { p ->
-                val dragging = p.id == draggingKey
-                val itemModifier = if (dragging) {
-                    Modifier
-                        .zIndex(1f)
-                        .graphicsLayer {
-                            translationX = dragOffset.x
-                            translationY = dragOffset.y
-                            scaleX = 1.08f
-                            scaleY = 1.08f
-                            shadowElevation = 24f
+            val g = grid()
+            if (g != null) {
+                val cellW = with(density) { g.cellW.toDp() }
+                val cellH = with(density) { g.cellH.toDp() }
+
+                HorizontalPager(
+                    state = pagerState,
+                    userScrollEnabled = draggingKey == null,
+                    modifier = Modifier.fillMaxSize()
+                ) { page ->
+                    Box(Modifier.fillMaxSize()) {
+                        people.filter { (layout[it.id] ?: it.slot) / PER_PAGE == page }.forEach { p ->
+                            key(p.id) {
+                                val slot = layout[p.id] ?: p.slot
+                                val o = g.origin(slot % PER_PAGE)
+                                val target = IntOffset(o.x.roundToInt(), o.y.roundToInt())
+                                val animated by animateIntOffsetAsState(target, label = "card")
+                                Box(
+                                    Modifier
+                                        .offset { animated }
+                                        .size(cellW, cellH)
+                                        .graphicsLayer { alpha = if (p.id == draggingKey) 0f else 1f }
+                                ) {
+                                    PersonCard(p, lifted = false)
+                                    DropdownMenu(
+                                        expanded = menuFor == p.id,
+                                        onDismissRequest = { menuFor = null }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Изменить") },
+                                            leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                            onClick = { menuFor = null; editFor = p.id }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Удалить") },
+                                            leadingIcon = { Icon(Icons.Default.Delete, null) },
+                                            onClick = { menuFor = null; deleteFor = p }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                } else {
-                    Modifier.animateItem()
+                    }
                 }
-                Box(itemModifier) {
-                    PersonCard(p, lifted = dragging)
-                    DropdownMenu(
-                        expanded = menuFor == p.id,
-                        onDismissRequest = { menuFor = null }
+
+                if (people.isEmpty()) {
+                    Text(
+                        "Нажмите «+» вверху, чтобы добавить контакт",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.align(Alignment.Center).padding(32.dp)
+                    )
+                }
+
+                // Карточка «в руке» поверх всех страниц
+                people.firstOrNull { it.id == draggingKey }?.let { p ->
+                    Box(
+                        Modifier
+                            .zIndex(2f)
+                            .offset { (finger - grab).let { IntOffset(it.x.roundToInt(), it.y.roundToInt()) } }
+                            .size(cellW, cellH)
+                            .graphicsLayer {
+                                scaleX = 1.08f
+                                scaleY = 1.08f
+                                shadowElevation = 24f
+                                shape = RoundedCornerShape(18.dp)
+                                clip = false
+                            }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Изменить") },
-                            leadingIcon = { Icon(Icons.Default.Edit, null) },
-                            onClick = { menuFor = null; editFor = p.id }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Удалить") },
-                            leadingIcon = { Icon(Icons.Default.Delete, null) },
-                            onClick = { menuFor = null; deleteFor = p }
-                        )
+                        PersonCard(p, lifted = true)
                     }
                 }
             }
@@ -279,8 +410,8 @@ fun App() {
             initial = c.phones.first(),
             onDismiss = { pendingCandidate = null },
             onConfirm = { number ->
-                update(people + c.toPerson(number))
                 pendingCandidate = null
+                addCandidate(c, number)
             }
         )
     }
@@ -305,7 +436,11 @@ fun App() {
             val phone = p.phone
             if (phone != null) {
                 ActionRow(
-                    icon = { Badge(MaterialTheme.colorScheme.primary) { Icon(Icons.Default.Call, null, tint = Color.White, modifier = Modifier.size(20.dp)) } },
+                    icon = {
+                        Badge(MaterialTheme.colorScheme.primary) {
+                            Icon(Icons.Default.Call, null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    },
                     label = "Позвонить"
                 ) { ctx.launch(callIntent(phone)); selected = null }
                 if (p.hasWhatsApp) {
@@ -329,40 +464,62 @@ fun App() {
     // Редактирование карточки
     editFor?.let { id ->
         val p = people.firstOrNull { it.id == id }
-        if (p == null) { editFor = null; return@let }
-        EditDialog(
-            ctx = ctx,
-            person = p,
-            onDismiss = { editFor = null },
-            onPickPhoto = {
-                photoFor = p.id
-                pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-            },
-            onContactPhoto = {
-                ContactsReader.deletePhotos(ctx, p.id)
-                val photo = ContactsReader.contactPhoto(ctx, p.id)
-                update(people.map { if (it.id == p.id) it.copy(photo = photo) else it })
-            },
-            onShowRows = { debugFor = p },
-            onSave = { number ->
-                val (tg, wa) = ContactsReader.messengers(ctx, p.id)
-                update(people.map {
-                    if (it.id == p.id) it.copy(phone = number, hasTelegram = tg, hasWhatsApp = wa) else it
-                })
-                editFor = null
-            }
-        )
+        if (p == null) {
+            editFor = null
+        } else {
+            EditDialog(
+                ctx = ctx,
+                person = p,
+                onDismiss = { editFor = null },
+                onPickPhoto = {
+                    photoFor = p.id
+                    pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                },
+                onContactPhoto = { cropReq = CropRequest(p.id, CropSource.FromContact(p.id)) },
+                onShowRows = { debugFor = p },
+                onSave = { number ->
+                    val (tg, wa) = ContactsReader.messengers(ctx, p.id)
+                    update(people.map {
+                        if (it.id == p.id) it.copy(phone = number, hasTelegram = tg, hasWhatsApp = wa) else it
+                    })
+                    editFor = null
+                }
+            )
+        }
+    }
+
+    // Подгонка фото под карточку
+    cropReq?.let { req ->
+        val bmp = cropBitmap
+        if (bmp == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        } else {
+            CropDialog(
+                bitmap = bmp,
+                aspect = cardAspect,
+                onCancel = { cropReq = null },
+                onDone = { rect ->
+                    val file = Photos.saveCrop(ctx, req.personId, bmp, rect, cardAspect)
+                    if (file != null) {
+                        update(people.map { if (it.id == req.personId) it.copy(photo = file) else it })
+                    } else {
+                        Toast.makeText(ctx, "Не удалось сохранить фото", Toast.LENGTH_SHORT).show()
+                    }
+                    cropReq = null
+                }
+            )
+        }
     }
 
     deleteFor?.let { p ->
         AlertDialog(
             onDismissRequest = { deleteFor = null },
             title = { Text("Удалить карточку?") },
-            text = { Text("${p.name} будет убран(а) из сетки. В телефонной книге контакт останется.") },
+            text = { Text("${p.name} будет убран(а) с экрана. В телефонной книге контакт останется.") },
             confirmButton = {
                 TextButton(onClick = {
                     ContactsReader.deletePhotos(ctx, p.id)
-                    update(people.filter { it.id != p.id })
+                    update(normalize(people.filter { it.id != p.id }))
                     deleteFor = null
                 }) { Text("Удалить") }
             },
@@ -390,9 +547,9 @@ fun App() {
     }
 }
 
-private fun Candidate.toPerson(phone: String?) = Person(
+private fun Candidate.toPerson(phone: String?, slot: Int) = Person(
     id = id, name = name, phone = phone, photo = photo,
-    hasTelegram = hasTelegram, hasWhatsApp = hasWhatsApp
+    hasTelegram = hasTelegram, hasWhatsApp = hasWhatsApp, slot = slot
 )
 
 @Composable
@@ -400,9 +557,7 @@ fun PersonCard(person: Person, lifted: Boolean) {
     Card(
         shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = if (lifted) 0.dp else 2.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(0.78f)
+        modifier = Modifier.fillMaxSize()
     ) {
         Box(Modifier.fillMaxSize()) {
             val photo = person.photo
@@ -515,7 +670,7 @@ private fun EditDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
-                            .size(72.dp)
+                            .size(width = 66.dp, height = 88.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
@@ -533,7 +688,7 @@ private fun EditDialog(
                     }
                     Spacer(Modifier.width(12.dp))
                     Column {
-                        OutlinedButton(onClick = onPickPhoto) { Text("Выбрать фото") }
+                        OutlinedButton(onClick = onPickPhoto) { Text("Фото из галереи") }
                         TextButton(onClick = onContactPhoto) { Text("Фото из контакта") }
                     }
                 }
