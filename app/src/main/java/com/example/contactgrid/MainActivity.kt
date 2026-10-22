@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
             MaterialTheme(colorScheme = colors) {
-                App()
+                Box(Modifier.fillMaxSize()) { App() }
             }
         }
     }
@@ -269,6 +269,7 @@ fun App() {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val g = grid() ?: return@awaitEachGesture
+                        if (cropReq != null) return@awaitEachGesture   // открыт экран подгонки фото
                         if (pagerState.isScrollInProgress) return@awaitEachGesture
                         val pos = g.cellAt(down.position) ?: return@awaitEachGesture
                         val slot = pagerState.currentPage * PER_PAGE + pos
@@ -472,10 +473,14 @@ fun App() {
                 person = p,
                 onDismiss = { editFor = null },
                 onPickPhoto = {
+                    editFor = null
                     photoFor = p.id
                     pickPhoto.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
-                onContactPhoto = { cropReq = CropRequest(p.id, CropSource.FromContact(p.id)) },
+                onContactPhoto = {
+                    editFor = null
+                    cropReq = CropRequest(p.id, CropSource.FromContact(p.id))
+                },
                 onShowRows = { debugFor = p },
                 onSave = { number ->
                     val (tg, wa) = ContactsReader.messengers(ctx, p.id)

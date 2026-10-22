@@ -1,10 +1,12 @@
 package com.example.contactgrid
 
 import android.graphics.Bitmap
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -34,17 +36,19 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import kotlin.math.max
 import kotlin.math.roundToInt
 
 /** Полноэкранная подгонка фото под рамку карточки: двигать пальцем, масштабировать щипком. */
 @Composable
 fun CropDialog(bitmap: Bitmap, aspect: Float, onCancel: () -> Unit, onDone: (CropRect) -> Unit) {
-    Dialog(
-        onDismissRequest = onCancel,
-        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+    // Не отдельное окно, а слой поверх основного экрана: отступы от системных панелей считаются верно
+    BackHandler(onBack = onCancel)
+    Box(
+        Modifier
+            .fillMaxSize()
+            .zIndex(10f)
     ) {
         // Расчёт обрезки задаётся внутри области с фото, а вызывается кнопкой «Готово»
         val computeCrop = remember { arrayOfNulls<() -> CropRect>(1) }
