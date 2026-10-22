@@ -2,6 +2,7 @@ package com.example.contactgrid
 
 import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Bundle
 import android.widget.Toast
@@ -92,6 +93,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -175,6 +177,24 @@ fun App() {
 
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(Unit) { permission.launch(Manifest.permission.READ_CONTACTS) }
+
+    // Звонок сразу, без промежуточного номеронабирателя. Разрешение спрашиваем при первом звонке.
+    var pendingCall by remember { mutableStateOf<String?>(null) }
+    val callPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val number = pendingCall
+        pendingCall = null
+        if (number != null) ctx.launch(if (granted) directCallIntent(number) else callIntent(number))
+    }
+    fun call(number: String) {
+        val granted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.CALL_PHONE) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            ctx.launch(directCallIntent(number))
+        } else {
+            pendingCall = number
+            callPermission.launch(Manifest.permission.CALL_PHONE)
+        }
+    }
 
     val pickContact = rememberLauncherForActivityResult(ActivityResultContracts.PickContact()) { uri ->
         if (uri != null) {
@@ -443,7 +463,7 @@ fun App() {
                         }
                     },
                     label = "Позвонить"
-                ) { ctx.launch(callIntent(phone)); selected = null }
+                ) { call(phone); selected = null }
                 if (p.hasWhatsApp) {
                     ActionRow(icon = { LetterBadge("W", WhatsAppGreen) }, label = "WhatsApp") {
                         ctx.launch(whatsAppIntent(phone)); selected = null

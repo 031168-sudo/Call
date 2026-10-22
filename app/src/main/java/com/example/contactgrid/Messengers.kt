@@ -15,8 +15,13 @@ private const val MAX_PKG = "ru.oneme.app"
 
 private fun digits(phone: String) = phone.filter { it.isDigit() }
 
+/** Открывает номеронабиратель с номером — запасной вариант без разрешения на звонки. */
 fun callIntent(phone: String): Intent =
     Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+
+/** Звонит сразу. Требует разрешения CALL_PHONE. */
+fun directCallIntent(phone: String): Intent =
+    Intent(Intent.ACTION_CALL, Uri.parse("tel:$phone"))
 
 fun whatsAppIntent(phone: String): Intent =
     Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/${digits(phone)}"))
