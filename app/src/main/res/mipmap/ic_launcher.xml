@@ -13,7 +13,7 @@
     <path android:fillColor="#F5D8DC"
         android:pathData="M24,2 H84 A22,22 0 0,1 106,24 V84 A22,22 0 0,1 84,106 H24 A22,22 0 0,1 2,84 V24 A22,22 0 0,1 24,2 Z" />
 
-    <group android:scaleX="1.73333" android:scaleY="1.73333" android:pivotX="54" android:pivotY="54">
+    <group android:scaleX="1.625" android:scaleY="1.625" android:pivotX="54" android:pivotY="54">
         <!-- Фотокарточка -->
         <path android:fillColor="#FFFFFF" android:strokeColor="#6B5B73" android:strokeWidth="2.8"
             android:strokeLineJoin="round"
