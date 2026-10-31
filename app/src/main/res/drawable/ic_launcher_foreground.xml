@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Детский рисунок: карточка с фотографией и зелёная кнопка вызова -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Фотокарточка -->
+    <path android:fillColor="#FFFFFF" android:strokeColor="#6B5B73" android:strokeWidth="2.8"
+        android:strokeLineJoin="round"
+        android:pathData="M37,30 L67,30 Q72,30 72,35 L72,69 Q72,74 67,74 L37,74 Q32,74 32,69 L32,35 Q32,30 37,30 Z" />
+
+    <!-- Поле снимка -->
+    <path android:fillColor="#BFE0F2" android:strokeColor="#6B5B73" android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M36,34 L68,34 L68,65 L36,65 Z" />
+
+    <!-- Человек на снимке: плечи и голова -->
+    <path android:fillColor="#C7B8EE" android:strokeColor="#6B5B73" android:strokeWidth="2.2"
+        android:strokeLineJoin="round"
+        android:pathData="M40,65 Q40,54 52,54 Q64,54 64,65 Z" />
+    <path android:fillColor="#F7D9B8" android:strokeColor="#6B5B73" android:strokeWidth="2.2"
+        android:pathData="M52,45 m-8,0 a8,8 0 1,0 16,0 a8,8 0 1,0 -16,0" />
+
+    <!-- Кнопка вызова -->
+    <path android:fillColor="#6FBF73" android:strokeColor="#6B5B73" android:strokeWidth="2.8"
+        android:pathData="M68,65 m-11.5,0 a11.5,11.5 0 1,0 23,0 a11.5,11.5 0 1,0 -23,0" />
+    <!-- Трубка -->
+    <group android:translateX="58.4" android:translateY="55.4"
+        android:scaleX="0.8" android:scaleY="0.8">
+        <path android:fillColor="#FFFFFF"
+            android:pathData="M6.62,10.79c1.44,2.83 3.76,5.14 6.59,6.59l2.2,-2.2c0.27,-0.27 0.67,-0.36 1.02,-0.24 1.12,0.37 2.33,0.57 3.57,0.57 0.55,0 1,0.45 1,1V20c0,0.55 -0.45,1 -1,1 -9.39,0 -17,-7.61 -17,-17 0,-0.55 0.45,-1 1,-1h3.5c0.55,0 1,0.45 1,1 0,1.25 0.2,2.45 0.57,3.57 0.11,0.35 0.03,0.74 -0.25,1.02l-2.2,2.2z" />
+    </group>
+</vector>
